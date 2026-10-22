@@ -232,6 +232,17 @@ Open http://localhost:5173 and sign in as `demo@tokengate.dev` with password `to
 
 Without Docker, point `MONGO_URI` in `server/.env` at your MongoDB (local or Atlas), then run `npm run install:all`, `npm run seed`, and `npm run dev:server` and `npm run dev:client` in two terminals.
 
+### Send real requests
+
+The seed fills the dashboard with demo traffic. Real traffic needs an NVIDIA API key, which is free: sign in at [build.nvidia.com](https://build.nvidia.com), open a model page and choose **Get API Key**, then set `NVIDIA_API_KEY` in `server/.env` and restart the server. Then follow these steps:
+
+1. Sign in to the dashboard. Register a new account to see only your own traffic, or use the demo account.
+2. Open **API keys**, create a key and copy it (it is shown once).
+3. Send a prompt from the **Playground**, or run the curl example in the API reference with your key.
+4. Open **Requests** to see the request with its route, tokens, cost and latency; **Overview** updates with it.
+
+On the free tier GPT-OSS sometimes takes longer than 30s. TokenGate then times it out and Nemotron answers, which shows up as a fallback in the response headers and the request log.
+
 ![The dashboard on a 390px phone](docs/images/overview-phone.png)
 
 ## Environment variables
