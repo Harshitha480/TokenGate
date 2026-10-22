@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useDeferredValue, useState } from 'react';
 import { Link } from 'react-router';
 import { Send, Square } from 'lucide-react';
 import { RouteTrace } from '../../components/RouteTrace.jsx';
@@ -12,6 +12,10 @@ import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States.jsx
 import { useKeys, useModels } from '../../hooks/useApi.js';
 import { formatCount, formatLatency, formatUsd } from '../../lib/format.js';
 import { usePlaygroundRequest } from './usePlaygroundRequest.js';
+
+// The Markdown and math renderer is only needed here, so it loads with this page's
+// first answer instead of with the dashboard.
+const Markdown = lazy(() => import('../../components/markdown/Markdown.jsx'));
 
 const DEFAULT_PROMPT = 'In two sentences, why is the sky blue?';
 
@@ -61,6 +65,9 @@ function ResponseHeaders({ headers, stream }) {
 function ResponsePanel({ request, stream }) {
   const { phase, text, reasoning, headers, error, record, totalMs } = request;
   const busy = phase === 'waiting' || phase === 'receiving';
+  // Re-parsing Markdown on every streamed token can lag behind the stream; React
+  // renders the latest text it can keep up with and never blocks input.
+  const deferredText = useDeferredValue(text);
 
   let status =
     'Send a prompt to see the response, the headers TokenGate adds and the route it took.';
@@ -96,13 +103,14 @@ function ResponsePanel({ request, stream }) {
           </details>
         ) : null}
 
-        {text || (phase === 'done' && !error) ? (
-          <p
-            className="text-section leading-7 whitespace-pre-wrap text-ink"
-            aria-live={busy ? 'polite' : 'off'}
-          >
-            {text || <span className="text-muted">The model returned no text.</span>}
-          </p>
+        {text ? (
+          <div aria-busy={busy}>
+            <Suspense fallback={<p className="text-body whitespace-pre-wrap text-ink">{text}</p>}>
+              <Markdown text={deferredText} />
+            </Suspense>
+          </div>
+        ) : phase === 'done' && !error ? (
+          <p className="text-body text-muted">The model returned no text.</p>
         ) : null}
 
         {error?.midStream ? (
@@ -226,7 +234,7 @@ export function PlaygroundPage() {
       ) : null}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)]">
-        <Panel title="Request">
+        <Panel title="Request" className="lg:sticky lg:top-4">
           {loading ? (
             <div className="flex flex-col gap-4">
               {[0, 1, 2, 3].map((row) => (
@@ -334,13 +342,27 @@ export function PlaygroundPage() {
                 />
               </div>
 
+              {/*
+                Distinct keys keep React from reusing one <button> for both: otherwise
+                Stop's own re-render turns the clicked element back into the submit
+                button before the browser runs the click's default action, and the
+                form submits a new request the moment the old one is cancelled.
+              */}
               <div className="flex gap-2 pt-1">
                 {busy ? (
-                  <Button onClick={request.stop} className="flex-1">
+                  <Button
+                    key="stop"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      request.stop();
+                    }}
+                    className="flex-1"
+                  >
                     <Square size={14} aria-hidden="true" /> Stop
                   </Button>
                 ) : (
                   <Button
+                    key="send"
                     type="submit"
                     variant="primary"
                     className="flex-1"

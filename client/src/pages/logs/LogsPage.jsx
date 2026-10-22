@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useSearchParams } from 'react-router';
 import { Page, PageHeader } from '../../components/shell/AppShell.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -19,18 +20,23 @@ const STATUS_TABS = [
 ];
 
 function FilterSelect({ label, value, onChange, children }) {
+  const id = useId();
+  // The label is a sibling tied by id, so the select's accessible name is just the
+  // label; on a phone it is visually hidden and the three filters share one row.
   return (
-    <label className="flex min-w-0 items-center gap-2 text-body text-muted">
-      {/* On a phone the three filters share one row; the selects name themselves. */}
-      <span className="sr-only flex-none sm:not-sr-only">{label}</span>
+    <div className="flex min-w-0 items-center gap-2 text-body text-muted">
+      <label htmlFor={id} className="sr-only flex-none sm:not-sr-only">
+        {label}
+      </label>
       <Select
+        id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="h-8 w-full sm:w-auto sm:min-w-36"
       >
         {children}
       </Select>
-    </label>
+    </div>
   );
 }
 
@@ -50,8 +56,12 @@ export function LogsPage() {
   const keys = useKeys();
 
   // Changing a filter resets paging; opening a log keeps the list where it is.
+  // Updates start from the live URL, not the params this render saw: the drawer's
+  // close event fires a moment after Escape, and building from a stale copy (which
+  // is also what setParams' function form receives) would undo a filter chosen in
+  // between. Router navigation updates window.location synchronously.
   function updateParams(changes, { resetPage = true } = {}) {
-    const next = new URLSearchParams(params);
+    const next = new URLSearchParams(window.location.search);
     for (const [name, value] of Object.entries(changes)) {
       if (value === '' || value === null || value === undefined) next.delete(name);
       else next.set(name, String(value));

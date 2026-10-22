@@ -21,7 +21,7 @@ TokenGate covers the gateway itself and a dashboard to watch it:
 - **Rate limiting**: sliding window per key, in memory or in Upstash Redis via an atomic Lua script, with `Retry-After` on 429
 - **Streaming**: Server-Sent Events proxied chunk by chunk, with usage captured from the final chunk
 - **Usage and cost logging**: every request is logged with tokens, cost from configured prices, latency, cache status and the route it took
-- **Dashboard**: overview with KPIs and charts, filterable request log with a route trace, key management, and a Playground that can force a provider outage
+- **Dashboard**: overview with KPIs and charts, filterable request log with a route trace, key management, and a Playground that renders answers as Markdown with math and can force a provider outage
 - **Providers**: NVIDIA's free [build.nvidia.com](https://build.nvidia.com) endpoints (Nemotron 3 Ultra 550B and GPT-OSS 20B) plus a mock provider for tests and keyless demos
 
 ![Overview in light mode, last 7 days of seeded traffic](docs/images/overview-light.png)
@@ -275,7 +275,7 @@ The client reads `VITE_API_URL` (when the dashboard is served from another origi
 
 ## Tests
 
-The server has 190 Jest tests and the client has 21 Vitest tests. Server tests run against an in-memory MongoDB (mongodb-memory-server), make no network calls and never read `server/.env`:
+The server has 191 Jest tests and the client has 26 Vitest tests. Server tests run against an in-memory MongoDB (mongodb-memory-server), make no network calls and never read `server/.env`:
 
 ```bash
 npm test                                # server unit and integration tests
@@ -286,7 +286,7 @@ npm run test:live --prefix server       # real Upstash checks, reads server/.env
 
 Coverage is 95.8% of statements and 87% of branches; CI fails below 90% and 80%. The suites cover:
 
-- **Unit**: cost calculation, cache keys, the sliding-window limiter on a fake clock, the fallback loop, the SSE parser split at every byte, timeouts and status mapping in the provider adapter against a real local HTTP server, time-zone bucketing across a DST change
+- **Unit**: Markdown preparation that keeps prices like $5 out of math mode, cost calculation, cache keys, the sliding-window limiter on a fake clock, the fallback loop, the SSE parser split at every byte, timeouts and status mapping in the provider adapter against a real local HTTP server, time-zone bucketing across a DST change
 - **Integration (Supertest)**: auth and session expiry, key creation and ownership, a successful completion and its log row, a cache HIT on the second identical request, 429 with `Retry-After`, fallback when the primary fails or times out, no fallback on a 4xx, streaming over real HTTP including client disconnects, every dashboard endpoint, and the seed script
 
 GitHub Actions runs lint, format checks, tests and coverage for the server, and lint, tests and a production build for the client on every push.
