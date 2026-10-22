@@ -40,6 +40,15 @@ const METRICS = {
 
 const METRIC_OPTIONS = Object.entries(METRICS).map(([value, { label }]) => ({ value, label }));
 
+/** X labels on calendar boundaries, so the gaps between them mean the same time. */
+function labelIndicesFor(points, range) {
+  const where = (test) =>
+    points.flatMap((point, index) => (test(new Date(point.t), index) ? [index] : []));
+  if (range === '24h') return where((date) => date.getHours() % 4 === 0);
+  if (range === '7d') return where((date) => date.getHours() === 0);
+  return where((_date, index) => index % 5 === 0);
+}
+
 /** One series at a time, switched with a segmented control rather than overlaid. */
 export function TrafficPanel({ range }) {
   const [metric, setMetric] = useState('requests');
@@ -95,6 +104,7 @@ export function TrafficPanel({ range }) {
             formatWhen={formatDateTime}
             details={config.details}
             markers={errorBuckets}
+            labelAt={labelIndicesFor(data.points, range)}
           />
         </div>
       )}

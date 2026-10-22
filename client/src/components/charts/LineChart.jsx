@@ -35,6 +35,7 @@ function segments(points, x, y) {
  *   formatWhen: (t: string) => string,
  *   details?: (point) => Array<{ label: string, value: string }>,
  *   markers?: Set<number>,
+ *   labelAt?: number[],
  *   minHeight?: number,
  * }} props
  *
@@ -50,6 +51,7 @@ export function LineChart({
   formatWhen,
   details,
   markers,
+  labelAt,
   minHeight = 220,
 }) {
   const [containerRef, size] = useElementSize();
@@ -71,6 +73,10 @@ export function LineChart({
   }, [points, width, height, formatTick]);
 
   const { ticks, left, plotWidth, plotHeight, x, y } = geometry;
+  // Calendar-aligned labels from the caller when given; on a phone keep every other one.
+  const labelIndices = labelAt
+    ? labelAt.filter((_, i) => width >= 480 || i % 2 === 0)
+    : xLabelIndices(points.length, width < 480 ? 4 : 6);
   const baseline = MARGIN.top + plotHeight;
   const active = activeIndex === null ? null : points[activeIndex];
 
@@ -133,7 +139,7 @@ export function LineChart({
             </g>
           ))}
 
-          {xLabelIndices(points.length, width < 480 ? 4 : 6).map((index, position, all) => {
+          {labelIndices.map((index, position, all) => {
             const isFirst = position === 0;
             const isLast = position === all.length - 1 && index > points.length * 0.8;
             return (

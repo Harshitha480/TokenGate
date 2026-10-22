@@ -54,7 +54,11 @@ const envSchemaWithRules = envSchema.superRefine((env, ctx) => {
  * deployment fails fast with a readable message instead of at the first request.
  */
 function loadConfig(env = process.env) {
-  const parsed = envSchemaWithRules.safeParse(env);
+  // `KEY=` in a .env file means "not set", not "set to an empty string".
+  const present = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined && value !== ''),
+  );
+  const parsed = envSchemaWithRules.safeParse(present);
   if (!parsed.success) {
     const problems = parsed.error.issues
       .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)

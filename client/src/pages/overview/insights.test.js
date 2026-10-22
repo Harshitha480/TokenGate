@@ -14,6 +14,16 @@ describe('deltaFor', () => {
     expect(deltaFor(120, 100, { polarity: 'neutral', range }).tone).toBe('muted');
   });
 
+  it('switches to the absolute difference when the ratio is too large to read', () => {
+    const delta = deltaFor(0.19, 0.0004, {
+      polarity: 'down-good',
+      range,
+      priorRequests: 1,
+      format: (v) => `$${v.toFixed(2)}`,
+    });
+    expect(delta).toEqual({ text: '+$0.19 vs prior 24h', tone: 'negative' });
+  });
+
   it('reports rates in percentage points', () => {
     expect(deltaFor(0.05, 0.02, { polarity: 'down-good', kind: 'points', range }).text).toBe(
       '+3.0 pts vs prior 24h',

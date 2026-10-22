@@ -36,6 +36,7 @@ export function KpiStrip({ current, previous, range, loading }) {
           ...kpi,
           range,
           priorRequests: previous?.requests,
+          format: kpi.format,
         });
         return (
           <div

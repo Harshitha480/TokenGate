@@ -1,3 +1,6 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const dotenv = require('dotenv');
 const { loadConfig } = require('../../src/config/env');
 
 const validEnv = {
@@ -22,6 +25,16 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ JWT_SECRET: 'short' })).toThrow(
       /MONGO_URI[\s\S]*JWT_SECRET must be at least 32 characters/,
     );
+  });
+
+  it('treats empty values as unset, so the shipped .env.example boots', () => {
+    const example = dotenv.parse(fs.readFileSync(path.join(__dirname, '../../.env.example')));
+
+    const config = loadConfig(example);
+
+    expect(config.providers.nvidia.apiKey).toBeNull();
+    expect(config.upstash).toEqual({ url: null, token: null });
+    expect(config.cache.driver).toBe('mongo');
   });
 
   it('returns an immutable config object', () => {

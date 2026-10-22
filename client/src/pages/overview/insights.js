@@ -33,6 +33,9 @@ export function findingFor(summary, range) {
   return `${formatCount(summary.requests)} requests cost ${formatUsd(summary.costUsd)} in the ${period}.`;
 }
 
+// Above a 10x change a percentage stops meaning anything to a reader.
+const MAX_READABLE_RATIO = 9.99;
+
 /**
  * The change against the previous period, coloured by whether the move is good or
  * bad for this metric (not by up or down), grey when nothing comparable exists.
@@ -43,7 +46,7 @@ export function findingFor(summary, range) {
 export function deltaFor(
   current,
   previous,
-  { polarity, kind = 'relative', range, key, priorRequests },
+  { polarity, kind = 'relative', range, key, priorRequests, format = String },
 ) {
   const against = `vs prior ${RANGE_SHORT[range]}`;
   if (current === null || current === undefined) return { text: '—', tone: 'muted' };
@@ -63,10 +66,15 @@ export function deltaFor(
   }
 
   const sign = change > 0 ? '+' : '−';
-  const amount =
-    kind === 'points'
-      ? `${sign}${Math.abs(change).toFixed(1)} pts`
-      : `${sign}${Math.abs(change * 100).toFixed(Math.abs(change) < 0.1 ? 1 : 0)}%`;
+  let amount;
+  if (kind === 'points') {
+    amount = `${sign}${Math.abs(change).toFixed(1)} pts`;
+  } else if (Math.abs(change) > MAX_READABLE_RATIO) {
+    // "+49800%" off a tiny base is noise; the difference itself is what reads.
+    amount = `${sign}${format(Math.abs(current - previous))}`;
+  } else {
+    amount = `${sign}${Math.abs(change * 100).toFixed(Math.abs(change) < 0.1 ? 1 : 0)}%`;
+  }
   const better = polarity === 'up-good' ? change > 0 : change < 0;
   const tone = polarity === 'neutral' ? 'muted' : better ? 'positive' : 'negative';
   return { text: `${amount} ${against}`, tone };
