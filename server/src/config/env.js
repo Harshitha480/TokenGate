@@ -23,6 +23,9 @@ const envSchema = z.object({
   LOG_PROMPTS: booleanFromString,
   BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
   DEFAULT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
+  NVIDIA_API_KEY: z.string().optional(),
+  NVIDIA_BASE_URL: z.string().url().default('https://integrate.api.nvidia.com/v1'),
+  PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });
 
 /**
@@ -51,6 +54,11 @@ function loadConfig(env = process.env) {
     logPrompts: e.LOG_PROMPTS,
     bcryptRounds: e.BCRYPT_ROUNDS,
     defaultRateLimitPerMinute: e.DEFAULT_RATE_LIMIT_PER_MINUTE,
+    providers: Object.freeze({
+      // An empty key means "not configured": requests to it fail over instead of crashing.
+      nvidia: Object.freeze({ apiKey: e.NVIDIA_API_KEY || null, baseUrl: e.NVIDIA_BASE_URL }),
+    }),
+    providerTimeoutMs: e.PROVIDER_TIMEOUT_MS,
   });
 }
 
