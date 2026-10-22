@@ -7,7 +7,7 @@ const mockModel = (overrides) => ({
   provider: 'mock',
   upstreamModel: 'test-upstream',
   pricing,
-  mock: { latencyMs: 0, failureRate: 0 },
+  mock: { latencyMs: 0, failureRate: 0, chunkDelayMs: 0 },
   ...overrides,
 });
 
@@ -37,6 +37,19 @@ const testModels = {
     timeoutMs: 30,
     mock: { latencyMs: 500, failureRate: 0 },
     fallbacks: ['test-backup'],
+  }),
+  'test-stream-slow': mockModel({
+    displayName: 'Streams one word every 40ms',
+    mock: { latencyMs: 0, failureRate: 0, chunkDelayMs: 40 },
+  }),
+  'test-stream-breaks': mockModel({
+    displayName: 'Fails after its third chunk',
+    mock: { latencyMs: 0, failureRate: 0, chunkDelayMs: 0, failAfterChunks: 3 },
+    fallbacks: ['test-backup'],
+  }),
+  'test-no-usage': mockModel({
+    displayName: 'Streams without a usage chunk',
+    mock: { latencyMs: 0, failureRate: 0, chunkDelayMs: 0, reportsUsage: false },
   }),
 };
 

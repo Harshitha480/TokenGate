@@ -1,4 +1,4 @@
-const { ProviderError } = require('../providers/providerError');
+const { ProviderError } = require('../../providers/providerError');
 
 /**
  * Whether a failed attempt may move on to the next model. Only provider-side

@@ -17,6 +17,9 @@ const modelSchema = z
         latencyMs: z.number().int().nonnegative(),
         failureRate: z.number().min(0).max(1),
         failStatus: z.number().int().min(400).max(599).optional(),
+        chunkDelayMs: z.number().int().nonnegative().optional(),
+        failAfterChunks: z.number().int().nonnegative().optional(),
+        reportsUsage: z.boolean().optional(),
       })
       .optional(),
   })

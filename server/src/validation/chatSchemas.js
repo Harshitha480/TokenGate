@@ -35,6 +35,10 @@ const chatCompletionBody = z
       .record(z.string(), z.union([z.boolean(), z.string(), z.number()]))
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.stream || body.stream_options === undefined, {
+    path: ['stream_options'],
+    message: 'stream_options is only allowed when stream is true',
+  });
 
 module.exports = { chatCompletionBody };

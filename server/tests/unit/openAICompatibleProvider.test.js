@@ -118,3 +118,89 @@ describe('OpenAI-compatible provider', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
+
+describe('OpenAI-compatible provider streaming', () => {
+  let upstream;
+  let respond;
+
+  beforeAll(async () => {
+    upstream = await startFakeUpstream((req, res, reqBody) => respond(req, res, reqBody));
+  });
+  afterAll(() => upstream.close());
+  beforeEach(() => {
+    upstream.requests.length = 0;
+  });
+
+  const provider = () =>
+    createOpenAICompatibleProvider({ name: 'nvidia', baseUrl: upstream.baseUrl, apiKey: 'k' });
+  const open = (timeoutMs = 2000) =>
+    provider().stream({ upstreamModel: 'vendor/model-x', body, timeoutMs });
+
+  const chunk = (content) => ({ choices: [{ index: 0, delta: { content } }] });
+
+  /** Writes SSE events with a delay between them; `null` means stall forever. */
+  function streamEvents(res, events, gapMs) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    let index = 0;
+    const next = () => {
+      if (index >= events.length) return res.end();
+      const event = events[index];
+      index += 1;
+      if (event === null) return undefined;
+      res.write(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`);
+      return setTimeout(next, gapMs);
+    };
+    next();
+  }
+
+  async function drain(iterator) {
+    const chunks = [];
+    for await (const c of iterator) chunks.push(c);
+    return chunks;
+  }
+
+  it('asks for usage and yields parsed chunks until [DONE]', async () => {
+    const usageChunk = { choices: [], usage: { prompt_tokens: 5, completion_tokens: 2 } };
+    respond = (req, res) =>
+      streamEvents(res, [chunk('Hel'), chunk('lo'), usageChunk, '[DONE]', chunk('ignored')], 5);
+
+    const chunks = await drain(await open());
+
+    expect(chunks).toEqual([chunk('Hel'), chunk('lo'), usageChunk]);
+    expect(upstream.requests[0].body).toMatchObject({
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+  });
+
+  it('rejects before streaming when the upstream refuses the request', async () => {
+    respond = (req, res) => sendJson(res, 503, { error: { message: 'overloaded' } });
+
+    await expect(open()).rejects.toMatchObject({ code: 'upstream_error', retryable: true });
+  });
+
+  it('turns an error event inside the stream into a ProviderError', async () => {
+    respond = (req, res) =>
+      streamEvents(res, [chunk('partial'), { error: { message: 'model crashed' } }], 5);
+
+    const iterator = await open();
+    await expect(drain(iterator)).rejects.toThrow(/model crashed/);
+  });
+
+  it('times out a stream that goes silent', async () => {
+    respond = (req, res) => streamEvents(res, [chunk('first'), null], 5);
+
+    const iterator = await open(100);
+    await expect(drain(iterator)).rejects.toMatchObject({ code: 'upstream_timeout' });
+  });
+
+  it('lets a long stream run past the timeout while chunks keep arriving', async () => {
+    const events = Array.from({ length: 8 }, (_, i) => chunk(`t${i}`));
+    respond = (req, res) => streamEvents(res, [...events, '[DONE]'], 40);
+
+    // 8 chunks 40ms apart take ~320ms in total, well over the 100ms idle timeout.
+    const chunks = await drain(await open(100));
+
+    expect(chunks).toHaveLength(8);
+  });
+});

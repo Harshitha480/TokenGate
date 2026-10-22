@@ -1,4 +1,4 @@
-const { executeWithFallback } = require('../../src/services/fallback');
+const { executeWithFallback } = require('../../src/services/gateway/fallback');
 const { ProviderError, fromUpstreamStatus } = require('../../src/providers/providerError');
 const { simulatedOutageError } = require('../../src/providers/mockProvider');
 

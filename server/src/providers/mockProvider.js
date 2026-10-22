@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { setTimeout: sleep } = require('node:timers/promises');
 const { ProviderError, fromUpstreamStatus, timeoutError } = require('./providerError');
-const { estimateMessagesTokens, estimateTextTokens, messageText } = require('../lib/tokens');
+const { estimateUsage, messageText } = require('../lib/tokens');
 
 const PROVIDER_NAME = 'mock';
 
@@ -25,35 +25,41 @@ async function simulateLatency(latencyMs, { signal, timeoutMs }) {
   await sleep(latencyMs, undefined, { signal });
 }
 
+/** Splits text into word-sized pieces, keeping the spaces, like streamed tokens. */
+function toPieces(text) {
+  return text.match(/\S+\s*/g) ?? [];
+}
+
 /**
  * A provider that never leaves the process. Behaviour comes from the model's `mock`
- * config: `latencyMs`, `failureRate` (0-1) and `failStatus` (the HTTP status a
- * failure imitates; 503 by default, 400 to imitate a rejected request).
+ * config:
+ *   latencyMs        time before the response (or the first streamed chunk)
+ *   failureRate      0-1 chance of failing before anything is returned
+ *   failStatus       HTTP status a failure imitates (503 default, 400 = bad request)
+ *   chunkDelayMs     gap between streamed chunks (default 25)
+ *   failAfterChunks  streams only: fail after sending this many chunks
+ *   reportsUsage     streams only: false omits the usage chunk (default true)
  *
  * @param {{ random?: () => number }} options  inject a deterministic random for tests
  */
 function createMockProvider({ random = Math.random } = {}) {
-  function shouldFail(failureRate) {
-    return failureRate > 0 && random() < failureRate;
-  }
-
-  async function complete({ upstreamModel, body, signal, timeoutMs, mock = {} }) {
+  async function startResponse({ signal, timeoutMs, mock }) {
     const { latencyMs = 0, failureRate = 0, failStatus = 503 } = mock;
     await simulateLatency(latencyMs, { signal, timeoutMs });
-
-    if (shouldFail(failureRate)) {
+    if (failureRate > 0 && random() < failureRate) {
       throw fromUpstreamStatus(
         PROVIDER_NAME,
         failStatus,
         'Simulated failure from the mock provider',
       );
     }
+  }
+
+  async function complete({ upstreamModel, body, signal, timeoutMs, mock = {} }) {
+    await startResponse({ signal, timeoutMs, mock });
 
     const content = buildReply(body.messages);
-    const usage = {
-      promptTokens: estimateMessagesTokens(body.messages),
-      completionTokens: estimateTextTokens(content),
-    };
+    const usage = estimateUsage(body.messages, content);
     return {
       body: {
         id: `chatcmpl-mock-${randomUUID()}`,
@@ -71,7 +77,53 @@ function createMockProvider({ random = Math.random } = {}) {
     };
   }
 
-  return { name: PROVIDER_NAME, isConfigured: () => true, complete };
+  async function stream({ upstreamModel, body, signal, timeoutMs, mock = {} }) {
+    await startResponse({ signal, timeoutMs, mock });
+    const { chunkDelayMs = 25, failAfterChunks = null, reportsUsage = true } = mock;
+
+    const content = buildReply(body.messages);
+    const base = {
+      id: `chatcmpl-mock-${randomUUID()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: upstreamModel,
+    };
+    const choice = (delta, finishReason = null) => ({
+      ...base,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    });
+
+    async function* chunks() {
+      const events = [
+        choice({ role: 'assistant', content: '' }),
+        ...toPieces(content).map((piece) => choice({ content: piece })),
+        choice({}, 'stop'),
+      ];
+      for (const [index, event] of events.entries()) {
+        if (failAfterChunks !== null && index === failAfterChunks) {
+          throw fromUpstreamStatus(PROVIDER_NAME, 502, 'Simulated mid-stream failure');
+        }
+        if (index > 0) await sleep(chunkDelayMs, undefined, { signal });
+        yield event;
+      }
+      if (reportsUsage) {
+        const usage = estimateUsage(body.messages, content);
+        yield {
+          ...base,
+          choices: [],
+          usage: {
+            prompt_tokens: usage.promptTokens,
+            completion_tokens: usage.completionTokens,
+            total_tokens: usage.promptTokens + usage.completionTokens,
+          },
+        };
+      }
+    }
+
+    return chunks();
+  }
+
+  return { name: PROVIDER_NAME, isConfigured: () => true, complete, stream };
 }
 
 /** The error the Playground's "make the primary fail" switch injects. */

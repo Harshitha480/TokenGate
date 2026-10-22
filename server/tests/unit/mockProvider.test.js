@@ -58,3 +58,50 @@ describe('mock provider', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
+
+describe('mock provider streaming', () => {
+  const open = (mock = {}) =>
+    createMockProvider().stream({
+      upstreamModel: 'mock-test',
+      body,
+      timeoutMs: 1000,
+      mock: { latencyMs: 0, failureRate: 0, chunkDelayMs: 0, ...mock },
+    });
+
+  async function drain(iterator) {
+    const chunks = [];
+    for await (const c of iterator) chunks.push(c);
+    return chunks;
+  }
+
+  it('streams a role chunk, the content, a stop chunk and usage', async () => {
+    const chunks = await drain(await open());
+
+    expect(chunks[0].choices[0].delta).toEqual({ role: 'assistant', content: '' });
+    const text = chunks.map((c) => c.choices[0]?.delta?.content ?? '').join('');
+    expect(text).toContain('Why is the sky blue?');
+    expect(chunks.at(-2).choices[0].finish_reason).toBe('stop');
+    expect(chunks.at(-1)).toMatchObject({
+      choices: [],
+      usage: { total_tokens: expect.any(Number) },
+    });
+  });
+
+  it('can omit usage like providers that do not report it', async () => {
+    const chunks = await drain(await open({ reportsUsage: false }));
+
+    expect(chunks.some((c) => c.usage)).toBe(false);
+  });
+
+  it('can fail partway through a stream', async () => {
+    const iterator = await open({ failAfterChunks: 2 });
+    const received = [];
+
+    await expect(
+      (async () => {
+        for await (const c of iterator) received.push(c);
+      })(),
+    ).rejects.toMatchObject({ code: 'upstream_error' });
+    expect(received).toHaveLength(2);
+  });
+});

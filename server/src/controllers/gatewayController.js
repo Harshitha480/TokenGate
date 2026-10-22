@@ -1,4 +1,5 @@
 const { AppError, badRequest } = require('../lib/errors');
+const { formatSSE } = require('../lib/sse');
 
 /** Aborts upstream work when the client goes away before the response is finished. */
 function abortOnClientDisconnect(res) {
@@ -17,6 +18,55 @@ function setGatewayHeaders(res, meta) {
     'X-TokenGate-Fallback': String(meta.fallbackUsed),
     'X-TokenGate-Cache': meta.cache,
   });
+}
+
+/** Resolves when the socket can take more data, or when the client has gone. */
+function waitForDrain(res) {
+  return new Promise((resolve) => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolve();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
+}
+
+/**
+ * Writes a streamed completion as Server-Sent Events. Each chunk is written as soon
+ * as it arrives; when the socket buffer is full we wait for it to drain rather than
+ * buffering an unbounded amount in memory.
+ */
+function createSseSink(res) {
+  const writable = () => !res.writableEnded && !res.destroyed;
+
+  return {
+    start(meta) {
+      setGatewayHeaders(res, meta);
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        // Tell nginx and similar proxies not to buffer the stream.
+        'X-Accel-Buffering': 'no',
+      });
+      res.flushHeaders();
+    },
+    async send(chunk) {
+      if (writable() && !res.write(formatSSE(chunk))) await waitForDrain(res);
+    },
+    fail(error) {
+      if (!writable()) return;
+      res.write(formatSSE({ error }));
+      res.end();
+    },
+    end() {
+      if (!writable()) return;
+      res.write(formatSSE('[DONE]'));
+      res.end();
+    },
+  };
 }
 
 /**
@@ -44,14 +94,21 @@ function readGatewayOptions(req, { allowFailureSimulation }) {
 
 function createGatewayController({ gatewayService, modelCatalog, allowFailureSimulation }) {
   async function createChatCompletion(req, res) {
-    const options = readGatewayOptions(req, { allowFailureSimulation });
-    const result = await gatewayService.createChatCompletion({
+    const { forceCache, simulateFailure } = readGatewayOptions(req, { allowFailureSimulation });
+    const params = {
       apiKey: req.apiKey,
       request: req.validated.body,
       requestId: req.id,
       signal: abortOnClientDisconnect(res),
-      ...options,
-    });
+      simulateFailure,
+    };
+
+    if (params.request.stream) {
+      await gatewayService.streamChatCompletion({ ...params, sink: createSseSink(res) });
+      return;
+    }
+
+    const result = await gatewayService.createChatCompletion({ ...params, forceCache });
     setGatewayHeaders(res, result.meta);
     res.json(result.body);
   }

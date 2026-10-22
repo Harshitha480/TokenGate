@@ -24,4 +24,26 @@ function estimateMessagesTokens(messages) {
   );
 }
 
-module.exports = { estimateTextTokens, estimateMessagesTokens, messageText };
+/** Provider usage in OpenAI's shape, as { promptTokens, completionTokens }, or null. */
+function normalizeUsage(usage) {
+  if (!Number.isFinite(usage?.prompt_tokens) || !Number.isFinite(usage?.completion_tokens)) {
+    return null;
+  }
+  return { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens };
+}
+
+/** Usage worked out from the text itself, for providers that do not report it. */
+function estimateUsage(messages, completionText) {
+  return {
+    promptTokens: estimateMessagesTokens(messages),
+    completionTokens: estimateTextTokens(completionText),
+  };
+}
+
+module.exports = {
+  estimateTextTokens,
+  estimateMessagesTokens,
+  estimateUsage,
+  messageText,
+  normalizeUsage,
+};

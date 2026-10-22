@@ -1,95 +1,31 @@
-const { AppError } = require('../lib/errors');
-const { logger: defaultLogger } = require('../lib/logger');
-const { ProviderError } = require('../providers/providerError');
-const { simulatedOutageError } = require('../providers/mockProvider');
-const { calculateCostUsd } = require('./costService');
+const { calculateCostUsd } = require('../costService');
 const { executeWithFallback } = require('./fallback');
-const { buildCacheKey, isCacheable } = require('./cache/cacheKey');
-const { estimateMessagesTokens, estimateTextTokens } = require('../lib/tokens');
+const { buildCacheKey, isCacheable } = require('../cache/cacheKey');
+const {
+  providerCall,
+  withFailureSimulation,
+  requireRoute,
+  completionText,
+  resolveUsage,
+  toClientError,
+  failureFields,
+  startTimer,
+} = require('./shared');
 
-// Request fields the gateway acts on itself instead of forwarding as-is.
-const GATEWAY_ONLY_FIELDS = new Set(['model', 'stream', 'stream_options']);
-const CLIENT_CLOSED_REQUEST = 499; // nginx's convention for "client went away"
 const CACHE_PROVIDER = 'cache';
 
-function buildUpstreamBody(model, request) {
-  const body = { ...model.defaultParams };
-  for (const [field, value] of Object.entries(request)) {
-    if (!GATEWAY_ONLY_FIELDS.has(field) && value !== undefined) body[field] = value;
-  }
-  return body;
-}
-
-function completionText(responseBody) {
-  return responseBody?.choices?.[0]?.message?.content ?? '';
-}
-
-function resolveUsage(outcome, request) {
-  if (outcome.usage) return { ...outcome.usage, tokensEstimated: false };
-  return {
-    promptTokens: estimateMessagesTokens(request.messages),
-    completionTokens: estimateTextTokens(completionText(outcome.body)),
-    tokensEstimated: true,
-  };
-}
-
-/** The error the client receives for a failed request, or null if it was a bug. */
-function toClientError(error, signal) {
-  if (signal?.aborted) {
-    return new AppError(
-      CLIENT_CLOSED_REQUEST,
-      'client_closed_request',
-      'Client closed the request',
-    );
-  }
-  if (error instanceof ProviderError) return new AppError(error.status, error.code, error.message);
-  if (error instanceof AppError) return error;
-  return null;
-}
-
-function startTimer() {
-  const startedAt = performance.now();
-  return () => Math.round(performance.now() - startedAt);
-}
-
 /**
- * Serves OpenAI-compatible chat completions: exact-match cache, then the requested
- * model, then its fallbacks. Records one RequestLog per request.
+ * Non-streaming completions: exact-match cache, then the requested model, then its
+ * fallbacks. Records one RequestLog per request.
  */
-function createGatewayService({
+function createCompletionHandler({
   modelCatalog,
   providers,
   requestLogService,
   cacheStore,
   defaultTimeoutMs,
-  logger = defaultLogger,
+  logger,
 }) {
-  function requireRoute(modelId) {
-    const route = modelCatalog.routeFor(modelId);
-    if (route.length === 0) {
-      const available = modelCatalog
-        .list()
-        .map((m) => m.id)
-        .join(', ');
-      throw new AppError(
-        404,
-        'model_not_found',
-        `Model "${modelId}" is not available. Try one of: ${available}`,
-      );
-    }
-    return route;
-  }
-
-  function callModel(model, request, signal) {
-    return providers[model.provider].complete({
-      upstreamModel: model.upstreamModel,
-      body: buildUpstreamBody(model, request),
-      signal,
-      timeoutMs: model.timeoutMs ?? defaultTimeoutMs,
-      mock: model.mock,
-    });
-  }
-
   // A cache outage must never fail a request; it only costs the saving.
   async function readCache(key, log) {
     try {
@@ -143,7 +79,7 @@ function createGatewayService({
    *   forceCache?: boolean, simulateFailure?: boolean,
    * }} params
    */
-  async function createChatCompletion({
+  return async function createChatCompletion({
     apiKey,
     request,
     requestId,
@@ -151,7 +87,7 @@ function createGatewayService({
     forceCache = false,
     simulateFailure = false,
   }) {
-    const route = requireRoute(request.model);
+    const route = requireRoute(modelCatalog, request.model);
     const elapsed = startTimer();
     const log = logger.child({ requestId });
     const baseEntry = {
@@ -173,10 +109,13 @@ function createGatewayService({
     const result = await executeWithFallback({
       route,
       signal,
-      attempt: (model, index) =>
-        simulateFailure && index === 0
-          ? Promise.reject(simulatedOutageError(model.provider))
-          : callModel(model, request, signal),
+      attempt: withFailureSimulation(
+        (model) =>
+          providers[model.provider].complete(
+            providerCall(model, request, { signal, defaultTimeoutMs }),
+          ),
+        { simulateFailure },
+      ),
       onFallback: ({ from, to, error }) =>
         log.warn({ from: from.id, to: to.id, errorCode: error.code }, 'Falling back'),
     });
@@ -185,16 +124,12 @@ function createGatewayService({
 
     if (!result.ok) {
       const clientError = toClientError(result.error, signal);
-      const lastAttempt = result.attempts.at(-1);
       requestLogService.record(
         {
           ...baseEntry,
-          provider: lastAttempt.provider,
+          provider: result.attempts.at(-1).provider,
           latencyMs,
-          status: signal?.aborted ? 'aborted' : 'error',
-          statusCode: clientError?.statusCode ?? 500,
-          errorCode: clientError?.code ?? 'internal_error',
-          errorMessage: clientError?.message ?? 'Unexpected gateway error',
+          ...failureFields(clientError, signal),
           fallbackUsed,
           attempts: result.attempts,
         },
@@ -204,7 +139,8 @@ function createGatewayService({
     }
 
     const { value: outcome, model: served } = result;
-    const usage = resolveUsage(outcome, request);
+    const text = completionText(outcome.body);
+    const usage = resolveUsage(outcome.usage, request.messages, text);
     const costUsd = calculateCostUsd(served.pricing, usage);
 
     if (cacheKey) {
@@ -233,7 +169,7 @@ function createGatewayService({
         fallbackUsed,
         attempts: result.attempts,
       },
-      { messages: request.messages, completionText: completionText(outcome.body) },
+      { messages: request.messages, completionText: text },
     );
 
     return {
@@ -246,9 +182,7 @@ function createGatewayService({
         cache: cacheKey ? 'MISS' : 'BYPASS',
       },
     };
-  }
-
-  return { createChatCompletion };
+  };
 }
 
-module.exports = { createGatewayService, buildUpstreamBody };
+module.exports = { createCompletionHandler };
