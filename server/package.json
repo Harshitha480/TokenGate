@@ -14,7 +14,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:live": "node --env-file=.env node_modules/jest/bin/jest.js tests/live"
   },
   "dependencies": {
     "@upstash/redis": "^1.39.0",

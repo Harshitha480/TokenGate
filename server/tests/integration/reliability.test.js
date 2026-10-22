@@ -212,6 +212,12 @@ describe('gateway reliability', () => {
       expect(log.attempts[0]).toMatchObject({ simulated: true, errorCode: 'simulated_outage' });
     });
 
+    it('rejects unknown failure-simulation values', async () => {
+      const res = await complete(chatRequest(), { 'X-TokenGate-Simulate-Failure': 'everything' });
+
+      expect(res.status).toBe(400);
+    });
+
     it('refuses failure simulation when it is disabled', async () => {
       const lockedDown = buildApp({ allowFailureSimulation: false });
 

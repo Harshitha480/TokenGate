@@ -38,6 +38,15 @@ describe('API key management', () => {
     expect(serialized).not.toContain('keyHash');
   });
 
+  it('fetches a single key by id', async () => {
+    const { key } = await createApiKey(app, token, { name: 'Staging' });
+
+    const res = await authed(request(app).get(`/api/keys/${key.id}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.key).toMatchObject({ id: key.id, name: 'Staging', status: 'active' });
+  });
+
   it('stores only a hash of the key', async () => {
     const { secret } = await createApiKey(app, token);
 

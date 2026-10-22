@@ -18,5 +18,9 @@ export default defineConfig(({ mode }) => {
         '/health': apiTarget,
       },
     },
+    test: {
+      environment: 'node',
+      include: ['src/**/*.test.js'],
+    },
   };
 });

@@ -61,13 +61,4 @@ requestLogSchema.index({ userId: 1, createdAt: -1 });
 // Lookups by the X-Request-Id a client saw (the Playground, support questions).
 requestLogSchema.index({ requestId: 1 });
 
-requestLogSchema.set('toJSON', {
-  transform(_doc, ret) {
-    ret.id = ret._id.toString();
-    delete ret._id;
-    delete ret.__v;
-    return ret;
-  },
-});
-
 module.exports = mongoose.models.RequestLog ?? mongoose.model('RequestLog', requestLogSchema);

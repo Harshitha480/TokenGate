@@ -18,8 +18,4 @@ const apiKeySchema = new mongoose.Schema(
 
 apiKeySchema.index({ userId: 1, createdAt: -1 });
 
-apiKeySchema.virtual('isActive').get(function isActive() {
-  return this.revokedAt === null;
-});
-
 module.exports = mongoose.models.ApiKey ?? mongoose.model('ApiKey', apiKeySchema);

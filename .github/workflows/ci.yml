@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   server:
-    name: Server (lint + test)
+    name: Server (lint, test, coverage)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,6 +22,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: server/package-lock.json
+      # mongodb-memory-server downloads a MongoDB binary on first use; keep it between runs.
       - name: Cache MongoDB test binary
         uses: actions/cache@v4
         with:
@@ -30,10 +31,19 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm test -- --ci
+      # Fails the job if coverage drops below the floor in jest.config.js. The live
+      # Upstash suite has no credentials here, so it reports as skipped.
+      - run: npm run test:coverage -- --ci
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-coverage
+          path: server/coverage
+          retention-days: 7
 
   client:
-    name: Client (lint + build)
+    name: Client (lint, test, build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,4 +58,5 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      - run: npm test
       - run: npm run build
