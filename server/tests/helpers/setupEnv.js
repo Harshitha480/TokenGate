@@ -7,3 +7,5 @@ process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.LOG_PROMPTS = 'false';
 // The minimum bcrypt cost keeps auth tests fast; production uses the default of 12.
 process.env.BCRYPT_ROUNDS = '4';
+// Many test users register from 127.0.0.1; the auth limiter has its own test.
+process.env.AUTH_RATE_LIMIT_PER_MINUTE = '10000';

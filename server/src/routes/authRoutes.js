@@ -4,10 +4,20 @@ const { validate } = require('../middleware/validate');
 const { requireUser } = require('../middleware/auth');
 const { registerBody, loginBody } = require('../validation/authSchemas');
 
-const router = Router();
+/** Credential endpoints are rate limited per IP to slow down password guessing. */
+function createAuthRouter({ authRateLimiter }) {
+  const router = Router();
 
-router.post('/register', validate({ body: registerBody }), authController.register);
-router.post('/login', validate({ body: loginBody }), authController.login);
-router.get('/me', requireUser, authController.me);
+  router.post(
+    '/register',
+    authRateLimiter,
+    validate({ body: registerBody }),
+    authController.register,
+  );
+  router.post('/login', authRateLimiter, validate({ body: loginBody }), authController.login);
+  router.get('/me', requireUser, authController.me);
 
-module.exports = router;
+  return router;
+}
+
+module.exports = { createAuthRouter };

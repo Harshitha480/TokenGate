@@ -1,11 +1,16 @@
 const { AppError } = require('../lib/errors');
+const { logger: defaultLogger } = require('../lib/logger');
 const { ProviderError } = require('../providers/providerError');
+const { simulatedOutageError } = require('../providers/mockProvider');
 const { calculateCostUsd } = require('./costService');
+const { executeWithFallback } = require('./fallback');
+const { buildCacheKey, isCacheable } = require('./cache/cacheKey');
 const { estimateMessagesTokens, estimateTextTokens } = require('../lib/tokens');
 
 // Request fields the gateway acts on itself instead of forwarding as-is.
 const GATEWAY_ONLY_FIELDS = new Set(['model', 'stream', 'stream_options']);
 const CLIENT_CLOSED_REQUEST = 499; // nginx's convention for "client went away"
+const CACHE_PROVIDER = 'cache';
 
 function buildUpstreamBody(model, request) {
   const body = { ...model.defaultParams };
@@ -28,8 +33,8 @@ function resolveUsage(outcome, request) {
   };
 }
 
-/** The error the client receives, and the fields that describe it in the log. */
-function describeFailure(error, signal) {
+/** The error the client receives for a failed request, or null if it was a bug. */
+function toClientError(error, signal) {
   if (signal?.aborted) {
     return new AppError(
       CLIENT_CLOSED_REQUEST,
@@ -42,14 +47,26 @@ function describeFailure(error, signal) {
   return null;
 }
 
+function startTimer() {
+  const startedAt = performance.now();
+  return () => Math.round(performance.now() - startedAt);
+}
+
 /**
- * Serves OpenAI-compatible chat completions through the configured providers and
- * records one RequestLog per request.
+ * Serves OpenAI-compatible chat completions: exact-match cache, then the requested
+ * model, then its fallbacks. Records one RequestLog per request.
  */
-function createGatewayService({ modelCatalog, providers, requestLogService, defaultTimeoutMs }) {
-  function requireModel(modelId) {
-    const model = modelCatalog.get(modelId);
-    if (!model) {
+function createGatewayService({
+  modelCatalog,
+  providers,
+  requestLogService,
+  cacheStore,
+  defaultTimeoutMs,
+  logger = defaultLogger,
+}) {
+  function requireRoute(modelId) {
+    const route = modelCatalog.routeFor(modelId);
+    if (route.length === 0) {
       const available = modelCatalog
         .list()
         .map((m) => m.id)
@@ -60,7 +77,7 @@ function createGatewayService({ modelCatalog, providers, requestLogService, defa
         `Model "${modelId}" is not available. Try one of: ${available}`,
       );
     }
-    return model;
+    return route;
   }
 
   function callModel(model, request, signal) {
@@ -73,67 +90,161 @@ function createGatewayService({ modelCatalog, providers, requestLogService, defa
     });
   }
 
-  async function createChatCompletion({ apiKey, request, requestId, signal }) {
-    const model = requireModel(request.model);
-    const startedAt = performance.now();
-    const elapsed = () => Math.round(performance.now() - startedAt);
+  // A cache outage must never fail a request; it only costs the saving.
+  async function readCache(key, log) {
+    try {
+      return await cacheStore.get(key);
+    } catch (err) {
+      log.warn({ err }, 'Cache read failed; treating as a miss');
+      return null;
+    }
+  }
+
+  async function writeCache(key, entry, log) {
+    try {
+      await cacheStore.set(key, entry);
+    } catch (err) {
+      log.warn({ err }, 'Cache write failed');
+    }
+  }
+
+  function serveFromCache({ hit, request, baseEntry, latencyMs }) {
+    requestLogService.record(
+      {
+        ...baseEntry,
+        servedModel: hit.servedModel,
+        provider: CACHE_PROVIDER,
+        promptTokens: hit.usage.promptTokens,
+        completionTokens: hit.usage.completionTokens,
+        costUsd: 0,
+        savedUsd: hit.costUsd,
+        latencyMs,
+        status: 'success',
+        statusCode: 200,
+        cached: true,
+      },
+      { messages: request.messages, completionText: completionText(hit.body) },
+    );
+    return {
+      body: hit.body,
+      meta: {
+        provider: CACHE_PROVIDER,
+        servedModel: hit.servedModel,
+        latencyMs,
+        fallbackUsed: false,
+        cache: 'HIT',
+      },
+    };
+  }
+
+  /**
+   * @param {{
+   *   apiKey: object, request: object, requestId: string, signal?: AbortSignal,
+   *   forceCache?: boolean, simulateFailure?: boolean,
+   * }} params
+   */
+  async function createChatCompletion({
+    apiKey,
+    request,
+    requestId,
+    signal,
+    forceCache = false,
+    simulateFailure = false,
+  }) {
+    const route = requireRoute(request.model);
+    const elapsed = startTimer();
+    const log = logger.child({ requestId });
     const baseEntry = {
       requestId,
       userId: apiKey.userId,
       apiKeyId: apiKey._id,
-      model: model.id,
-      provider: model.provider,
+      model: route[0].id,
       stream: false,
     };
 
-    let outcome;
-    try {
-      outcome = await callModel(model, request, signal);
-    } catch (error) {
-      const latencyMs = elapsed();
-      const failure = describeFailure(error, signal);
+    const cacheKey = isCacheable(request, { force: forceCache })
+      ? buildCacheKey(apiKey.userId, request)
+      : null;
+    if (cacheKey) {
+      const hit = await readCache(cacheKey, log);
+      if (hit) return serveFromCache({ hit, request, baseEntry, latencyMs: elapsed() });
+    }
+
+    const result = await executeWithFallback({
+      route,
+      signal,
+      attempt: (model, index) =>
+        simulateFailure && index === 0
+          ? Promise.reject(simulatedOutageError(model.provider))
+          : callModel(model, request, signal),
+      onFallback: ({ from, to, error }) =>
+        log.warn({ from: from.id, to: to.id, errorCode: error.code }, 'Falling back'),
+    });
+    const latencyMs = elapsed();
+    const fallbackUsed = result.attempts.length > 1;
+
+    if (!result.ok) {
+      const clientError = toClientError(result.error, signal);
+      const lastAttempt = result.attempts.at(-1);
       requestLogService.record(
         {
           ...baseEntry,
+          provider: lastAttempt.provider,
           latencyMs,
           status: signal?.aborted ? 'aborted' : 'error',
-          statusCode: failure?.statusCode ?? 500,
-          errorCode: failure?.code ?? 'internal_error',
-          errorMessage: failure?.message ?? 'Unexpected gateway error',
-          attempts: [
-            {
-              model: model.id,
-              provider: model.provider,
-              outcome: 'error',
-              errorCode: failure?.code ?? 'internal_error',
-              latencyMs,
-            },
-          ],
+          statusCode: clientError?.statusCode ?? 500,
+          errorCode: clientError?.code ?? 'internal_error',
+          errorMessage: clientError?.message ?? 'Unexpected gateway error',
+          fallbackUsed,
+          attempts: result.attempts,
         },
         { messages: request.messages },
       );
-      throw failure ?? error;
+      throw clientError ?? result.error;
     }
 
-    const latencyMs = elapsed();
+    const { value: outcome, model: served } = result;
     const usage = resolveUsage(outcome, request);
+    const costUsd = calculateCostUsd(served.pricing, usage);
+
+    if (cacheKey) {
+      await writeCache(
+        cacheKey,
+        {
+          body: outcome.body,
+          servedModel: served.id,
+          usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens },
+          costUsd,
+        },
+        log,
+      );
+    }
+
     requestLogService.record(
       {
         ...baseEntry,
-        servedModel: model.id,
+        servedModel: served.id,
+        provider: served.provider,
         ...usage,
-        costUsd: calculateCostUsd(model.pricing, usage),
+        costUsd,
         latencyMs,
         status: 'success',
         statusCode: 200,
-        attempts: [{ model: model.id, provider: model.provider, outcome: 'success', latencyMs }],
+        fallbackUsed,
+        attempts: result.attempts,
       },
       { messages: request.messages, completionText: completionText(outcome.body) },
     );
 
     return {
       body: outcome.body,
-      meta: { provider: model.provider, servedModel: model.id, latencyMs, fallbackUsed: false },
+      meta: {
+        provider: served.provider,
+        servedModel: served.id,
+        latencyMs,
+        fallbackUsed,
+        cache: cacheKey ? 'MISS' : 'BYPASS',
+      },
     };
   }
 

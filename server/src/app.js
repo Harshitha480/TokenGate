@@ -7,7 +7,7 @@ const { requestId } = require('./middleware/requestId');
 const { httpLogger } = require('./middleware/httpLogger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const healthRoutes = require('./routes/healthRoutes');
-const authRoutes = require('./routes/authRoutes');
+const { createAuthRouter } = require('./routes/authRoutes');
 const keyRoutes = require('./routes/keyRoutes');
 const { createGatewayRouter } = require('./routes/gatewayRoutes');
 const { createGatewayController } = require('./controllers/gatewayController');
@@ -20,12 +20,18 @@ const EXPOSED_HEADERS = [
   'X-TokenGate-Model',
   'X-TokenGate-Latency-Ms',
   'X-TokenGate-Fallback',
+  'X-TokenGate-Cache',
+  'X-RateLimit-Limit',
+  'X-RateLimit-Remaining',
+  'X-RateLimit-Reset',
+  'Retry-After',
 ];
 
 function createApp(container = createContainer()) {
   const app = express();
   const gatewayController = createGatewayController(container);
 
+  app.set('trust proxy', config.trustProxy);
   app.use(helmet());
   app.use(cors({ origin: config.clientUrl, exposedHeaders: EXPOSED_HEADERS }));
   app.use(requestId);
@@ -33,9 +39,9 @@ function createApp(container = createContainer()) {
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/health', healthRoutes);
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', createAuthRouter(container));
   app.use('/api/keys', keyRoutes);
-  app.use('/v1', createGatewayRouter({ gatewayController }));
+  app.use('/v1', createGatewayRouter({ gatewayController, ...container }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
