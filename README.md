@@ -1,6 +1,6 @@
 # TokenGate
 
-[![CI](https://github.com/your_github_user/tokengate/actions/workflows/ci.yml/badge.svg)](https://github.com/your_github_user/tokengate/actions/workflows/ci.yml)
+[![CI](https://github.com/Harshitha480/Token_Gate/actions/workflows/ci.yml/badge.svg)](https://github.com/Harshitha480/Token_Gate/actions/workflows/ci.yml)
 
 An OpenAI-compatible LLM gateway that authenticates apps with its own keys, caches, rate limits and fails over between providers, and shows what every request cost.
 
@@ -222,7 +222,7 @@ These headers control or describe gateway behaviour:
 You need Node.js 22 or later and either Docker or a MongoDB 7+ server. With Docker, four commands start everything:
 
 ```bash
-git clone your_repo_url tokengate && cd tokengate
+git clone https://github.com/Harshitha480/Token_Gate.git tokengate && cd tokengate
 cp server/.env.example server/.env
 docker compose up --build -d
 docker compose exec server npm run seed
