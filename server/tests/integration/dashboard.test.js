@@ -223,7 +223,6 @@ describe('dashboard API', () => {
       const times = res.body.data.map((log) => new Date(log.createdAt).getTime());
       expect([...times].sort((a, b) => b - a)).toEqual(times);
       expect(res.body.data[0]).not.toHaveProperty('prompt');
-      expect(res.body.data[0]).not.toHaveProperty('attempts');
       expect(res.body.data[0].apiKeyName).toBe('Production');
     });
 
@@ -238,6 +237,14 @@ describe('dashboard API', () => {
       const res = await authed(request(app).get(`/api/logs?${qs}`));
 
       expect(res.body.pagination.total).toBe(expected);
+    });
+
+    it('finds a request by the X-Request-Id the client saw', async () => {
+      const [log] = await RequestLog.insertMany([logRow({ requestId: 'req-lookup-12345' })]);
+
+      const res = await authed(request(app).get('/api/logs?requestId=req-lookup-12345'));
+
+      expect(res.body.data.map((row) => row.id)).toEqual([log.id]);
     });
 
     it('caps the page size', async () => {

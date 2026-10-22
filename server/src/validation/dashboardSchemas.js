@@ -25,6 +25,7 @@ const logsQuery = z
     model: z.string().min(1).max(128).optional(),
     apiKeyId: objectId.optional(),
     cached: booleanParam.optional(),
+    requestId: z.string().min(8).max(128).optional(),
   })
   .strict();
 

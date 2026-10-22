@@ -58,6 +58,8 @@ const requestLogSchema = new mongoose.Schema({
 // Dashboard queries always scope to one user (or one key) and a time range.
 requestLogSchema.index({ apiKeyId: 1, createdAt: -1 });
 requestLogSchema.index({ userId: 1, createdAt: -1 });
+// Lookups by the X-Request-Id a client saw (the Playground, support questions).
+requestLogSchema.index({ requestId: 1 });
 
 requestLogSchema.set('toJSON', {
   transform(_doc, ret) {

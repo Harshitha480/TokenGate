@@ -7,7 +7,21 @@
       name="description"
       content="TokenGate: LLM gateway usage, cost and reliability dashboard"
     />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>TokenGate</title>
+    <script>
+      // Apply the saved theme before first paint so dark mode never flashes white.
+      try {
+        var saved = localStorage.getItem('tokengate.theme');
+        var dark =
+          saved === 'dark' ||
+          ((!saved || saved === 'system') &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light';
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

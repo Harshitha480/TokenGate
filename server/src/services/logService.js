@@ -2,8 +2,8 @@ const RequestLog = require('../models/RequestLog');
 const ApiKey = require('../models/ApiKey');
 const { notFound } = require('../lib/errors');
 
-// The list view stays light; prompts, completions and attempts are detail-only.
-const LIST_PROJECTION = { prompt: 0, completion: 0, attempts: 0, __v: 0 };
+// The list view stays light; prompts and completions are detail-only.
+const LIST_PROJECTION = { prompt: 0, completion: 0, __v: 0 };
 
 async function keyNamesFor(userId) {
   const keys = await ApiKey.find({ userId }).select('name').lean();
@@ -22,14 +22,15 @@ function present(log, keyNames) {
 
 /**
  * @param {string} userId
- * @param {{ page: number, limit: number, status?: string, model?: string, apiKeyId?: string, cached?: boolean }} query
+ * @param {{ page: number, limit: number, status?: string, model?: string, apiKeyId?: string, cached?: boolean, requestId?: string }} query
  */
-async function listLogs(userId, { page, limit, status, model, apiKeyId, cached }) {
+async function listLogs(userId, { page, limit, status, model, apiKeyId, cached, requestId }) {
   const filter = { userId };
   if (status) filter.status = status;
   if (model) filter.model = model;
   if (apiKeyId) filter.apiKeyId = apiKeyId;
   if (cached !== undefined) filter.cached = cached;
+  if (requestId) filter.requestId = requestId;
 
   const [rows, total, keyNames] = await Promise.all([
     RequestLog.find(filter, LIST_PROJECTION)
