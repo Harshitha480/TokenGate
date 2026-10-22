@@ -1,0 +1,13 @@
+{
+  "name": "tokengate",
+  "private": true,
+  "description": "LLM API gateway with a cost and observability dashboard",
+  "scripts": {
+    "install:all": "npm ci --prefix server && npm ci --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "lint": "npm run lint --prefix server && npm run lint --prefix client",
+    "test": "npm test --prefix server",
+    "seed": "npm run seed --prefix server"
+  }
+}

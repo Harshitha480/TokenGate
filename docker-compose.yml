@@ -1,0 +1,51 @@
+name: tokengate
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  server:
+    build:
+      context: ./server
+      target: dev
+    env_file: ./server/.env
+    environment:
+      # Use the bundled mongo container by default; set COMPOSE_MONGO_URI to use Atlas.
+      MONGO_URI: ${COMPOSE_MONGO_URI:-mongodb://mongo:27017/tokengate}
+      PORT: 5001
+      CLIENT_URL: http://localhost:5173
+    ports:
+      - '5001:5001'
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./server/src:/app/src
+      - ./server/scripts:/app/scripts
+
+  client:
+    build:
+      context: ./client
+      target: dev
+    environment:
+      VITE_PROXY_TARGET: http://server:5001
+    ports:
+      - '5173:5173'
+    depends_on:
+      - server
+    volumes:
+      - ./client/src:/app/src
+      - ./client/index.html:/app/index.html
+
+volumes:
+  mongo-data:
