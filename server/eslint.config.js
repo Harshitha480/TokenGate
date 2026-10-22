@@ -13,7 +13,10 @@ module.exports = [
       globals: globals.node,
     },
     rules: {
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true },
+      ],
       'no-console': 'error',
       eqeqeq: ['error', 'always'],
       'prefer-const': 'error',

@@ -10,6 +10,12 @@ const healthRoutes = require('./routes/healthRoutes');
 const { createAuthRouter } = require('./routes/authRoutes');
 const keyRoutes = require('./routes/keyRoutes');
 const { createGatewayRouter } = require('./routes/gatewayRoutes');
+const { createPlaygroundRouter } = require('./routes/playgroundRoutes');
+const {
+  createStatsRouter,
+  createLogsRouter,
+  createModelsRouter,
+} = require('./routes/dashboardRoutes');
 const { createGatewayController } = require('./controllers/gatewayController');
 
 // Browsers hide response headers from scripts unless CORS lists them; the dashboard
@@ -41,6 +47,10 @@ function createApp(container = createContainer()) {
   app.use('/health', healthRoutes);
   app.use('/api/auth', createAuthRouter(container));
   app.use('/api/keys', keyRoutes);
+  app.use('/api/stats', createStatsRouter());
+  app.use('/api/logs', createLogsRouter());
+  app.use('/api/models', createModelsRouter(container));
+  app.use('/api/playground', createPlaygroundRouter({ gatewayController, ...container }));
   app.use('/v1', createGatewayRouter({ gatewayController, ...container }));
 
   app.use(notFoundHandler);

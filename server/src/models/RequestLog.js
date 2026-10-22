@@ -41,6 +41,9 @@ const requestLogSchema = new mongoose.Schema({
   errorMessage: { type: String, default: null },
 
   cached: { type: Boolean, default: false },
+  // HIT or MISS when the request was eligible for the cache, BYPASS otherwise; the
+  // hit rate is HIT / (HIT + MISS), so uncacheable traffic does not dilute it.
+  cacheStatus: { type: String, enum: ['HIT', 'MISS', 'BYPASS'], default: 'BYPASS' },
   fallbackUsed: { type: Boolean, default: false },
   attempts: { type: [attemptSchema], default: [] },
 

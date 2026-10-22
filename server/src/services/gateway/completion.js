@@ -58,6 +58,7 @@ function createCompletionHandler({
         status: 'success',
         statusCode: 200,
         cached: true,
+        cacheStatus: 'HIT',
       },
       { messages: request.messages, completionText: completionText(hit.body) },
     );
@@ -90,17 +91,17 @@ function createCompletionHandler({
     const route = requireRoute(modelCatalog, request.model);
     const elapsed = startTimer();
     const log = logger.child({ requestId });
+    const cacheKey = isCacheable(request, { force: forceCache })
+      ? buildCacheKey(apiKey.userId, request)
+      : null;
     const baseEntry = {
       requestId,
       userId: apiKey.userId,
       apiKeyId: apiKey._id,
       model: route[0].id,
       stream: false,
+      cacheStatus: cacheKey ? 'MISS' : 'BYPASS',
     };
-
-    const cacheKey = isCacheable(request, { force: forceCache })
-      ? buildCacheKey(apiKey.userId, request)
-      : null;
     if (cacheKey) {
       const hit = await readCache(cacheKey, log);
       if (hit) return serveFromCache({ hit, request, baseEntry, latencyMs: elapsed() });
