@@ -5,3 +5,5 @@ process.env.MONGO_URI = process.env.MONGO_TEST_URI ?? 'mongodb://127.0.0.1:27017
 process.env.JWT_SECRET = 'test-secret-that-is-at-least-32-characters-long';
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.LOG_PROMPTS = 'false';
+// The minimum bcrypt cost keeps auth tests fast; production uses the default of 12.
+process.env.BCRYPT_ROUNDS = '4';

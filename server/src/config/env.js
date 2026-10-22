@@ -21,6 +21,8 @@ const envSchema = z.object({
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   LOG_PROMPTS: booleanFromString,
+  BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+  DEFAULT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
 });
 
 /**
@@ -47,6 +49,8 @@ function loadConfig(env = process.env) {
     clientUrl: e.CLIENT_URL,
     logLevel: e.LOG_LEVEL,
     logPrompts: e.LOG_PROMPTS,
+    bcryptRounds: e.BCRYPT_ROUNDS,
+    defaultRateLimitPerMinute: e.DEFAULT_RATE_LIMIT_PER_MINUTE,
   });
 }
 

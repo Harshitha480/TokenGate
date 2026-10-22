@@ -6,6 +6,8 @@ const { requestId } = require('./middleware/requestId');
 const { httpLogger } = require('./middleware/httpLogger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const healthRoutes = require('./routes/healthRoutes');
+const authRoutes = require('./routes/authRoutes');
+const keyRoutes = require('./routes/keyRoutes');
 
 function createApp() {
   const app = express();
@@ -22,6 +24,8 @@ function createApp() {
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/health', healthRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/keys', keyRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
